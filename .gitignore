@@ -257,6 +257,7 @@ enc_temp_folder/
 
 # Ignore content folders
 Content/
+!Crane/Content/
 
 # Ignore DDC
 /Engine/DerivedDataCache/**
