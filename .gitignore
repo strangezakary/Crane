@@ -229,6 +229,9 @@
 /Engine/Binaries/DotNet/Android/UnrealAndroidFileTool/*.xml
 /Engine/Binaries/DotNet/**/*.runtimeconfig*.json
 
+!*.uasset
+!*.umap
+
 # Ignore Datasmith generated sources on all platforms
 /Engine/Binaries/**/DatasmithFacadeCSharp
 /Engine/Binaries/**/DatasmithSDK
@@ -258,6 +261,8 @@ enc_temp_folder/
 # Ignore content folders
 Content/
 !Crane/Content/
+!Crane/Content/*.uasset
+!Crane/Content/*.umap
 
 # Ignore DDC
 /Engine/DerivedDataCache/**
