@@ -144,6 +144,8 @@
 /UE5CodeCompletionFolders.txt
 /UE5CodeLitePreProcessor.txt
 
+!/Game/
+
 # Add exceptions for Mac Mono binaries needed to run GitDependencies.exe.
 !/Engine/Binaries/ThirdParty/Mono/Mac/bin/*
 !/Engine/Binaries/ThirdParty/Mono/Mac/etc/mono/config
