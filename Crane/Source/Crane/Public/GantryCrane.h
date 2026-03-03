@@ -20,15 +20,32 @@ class AGantryCrane : public APawn
 public:
     AGantryCrane();
 
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaTime) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+
     void OnUnpossess();
     void OnMove(const FInputActionValue& Value);
     void OnMoveStop(const FInputActionValue& Value);
     void OnLook(const FInputActionValue& Value);
     void OnDrop(const FInputActionValue& Value);
+    void OnWinchPressed();
+    void OnWinchReleased();
+
+    UFUNCTION(Server, Reliable)
+    void Server_SetMoveInput(float Bridge, float Trolley);
+
+    UFUNCTION(Server, Reliable)
+    void Server_SetWinch(bool bLowering);
+
+    UFUNCTION(Server, Reliable)
+    void Server_Drop();
+
+    UFUNCTION(Server, Reliable)
+    void Server_Unpossess();
 
     UFUNCTION()
     void OnPossessVolumeOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
@@ -60,10 +77,10 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Crane|Components")
     TObjectPtr<UBoxComponent> PossessVolume;
 
-    UPROPERTY()
+    UPROPERTY(Replicated)
     TObjectPtr<APawn> PreviousPawn;
 
-    UPROPERTY()
+    UPROPERTY(Replicated)
     TObjectPtr<ACGCrate> HeldCrate;
 
     UPROPERTY(EditAnywhere, Category = "Crane|Input")
@@ -118,19 +135,22 @@ protected:
     float HookMaxZ = 0.f;
 
 private:
+    UPROPERTY(Replicated)
+    FVector BridgeWorldPos;
+
+    UPROPERTY(Replicated)
+    FVector TrolleyRelPos;
+
+    UPROPERTY(Replicated)
+    float HookRelZ = 0.f;
+
     float BridgeVelocity = 0.f;
     float TrolleyVelocity = 0.f;
     float BridgeInput = 0.f;
     float TrolleyInput = 0.f;
     bool bLoweringHook = false;
 
-    FVector BridgeWorldPos;
-    FVector TrolleyRelPos;
-    float HookRelZ;
-
     void ApplyPhysics(float& Velocity, float Input, float MaxSpeed, float Damping, float DeltaTime);
     void OnBridgeForward(float Val);
     void OnTrolleyRight(float Val);
-    void OnWinchPressed();
-    void OnWinchReleased();
 };
