@@ -1,5 +1,6 @@
-﻿
-#include "Gameplay/Public/GantryCrane.h"
+﻿#include "Public/GantryCrane.h"
+#include "Public/CGCrate.h"
+
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/PlayerController.h"
@@ -20,6 +21,11 @@ AGantryCrane::AGantryCrane()
 
 	HookMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HookMesh"));
 	HookMesh->SetupAttachment(TrolleyMesh);
+
+	HookVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("HookVolume"));
+	HookVolume->SetupAttachment(HookMesh);
+	HookVolume->SetBoxExtent(FVector(50.f, 50.f, 50.f));
+	HookVolume->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
 
 	PossessVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("PossessVolume"));
 	PossessVolume->SetupAttachment(CraneRoot);
@@ -51,6 +57,8 @@ void AGantryCrane::BeginPlay()
 	HookRelZ = HookMaxZ;
 
 	PossessVolume->OnComponentBeginOverlap.AddDynamic(this, &AGantryCrane::OnPossessVolumeOverlap);
+	HookVolume->OnComponentBeginOverlap.AddDynamic(this, &AGantryCrane::OnHookVolumeOverlap);
+
 	HookMesh->SetRelativeLocation(FVector(0.f, 0.f, HookRelZ));
 }
 
@@ -64,35 +72,35 @@ void AGantryCrane::ApplyPhysics(float& Velocity, float Input, float MaxSpeed, fl
 	{
 		Velocity = FMath::FInterpTo(Velocity, 0.f, DeltaTime, Damping);
 	}
-		
 }
 
 void AGantryCrane::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	//Bridge
 	ApplyPhysics(BridgeVelocity, BridgeInput, BridgeMaxSpeed, BridgeDamping, DeltaTime);
 
 	BridgeWorldPos.X += BridgeVelocity * DeltaTime;
 	BridgeWorldPos.X = FMath::Clamp(
 		BridgeWorldPos.X,
 		GetActorLocation().X - BridgeRailHalfLength,
-		GetActorLocation().X + BridgeRailHalfLength);
+		GetActorLocation().X + BridgeRailHalfLength
+	);
 
 	BridgeMesh->SetWorldLocation(BridgeWorldPos);
 
-	//Trolley
 	ApplyPhysics(TrolleyVelocity, TrolleyInput, TrolleyMaxSpeed, TrolleyDamping, DeltaTime);
 
 	TrolleyRelPos.Y += TrolleyVelocity * DeltaTime;
 	TrolleyRelPos.Y = FMath::Clamp(TrolleyRelPos.Y, -TrolleyHalfLength, TrolleyHalfLength);
+
 	TrolleyMesh->SetRelativeLocation(TrolleyRelPos);
 
-	//Hook Winch
-	const float WinchDir = bLoweringHook ? -1.f : 1.f; // -Z = down
+	const float WinchDir = bLoweringHook ? -1.f : 1.f;
+
 	HookRelZ += WinchDir * WinchSpeed * DeltaTime;
 	HookRelZ = FMath::Clamp(HookRelZ, HookMinZ, HookMaxZ);
+
 	HookMesh->SetRelativeLocation(FVector(0.f, 0.f, HookRelZ));
 }
 
@@ -101,13 +109,16 @@ void AGantryCrane::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent);
-	if (!EIC) return;
-	
+	if (!EIC)
+	{
+		return;
+	}
+
 	if (IA_Look)
 	{
 		EIC->BindAction(IA_Look, ETriggerEvent::Triggered, this, &AGantryCrane::OnLook);
 	}
-	
+
 	if (IA_Move)
 	{
 		EIC->BindAction(IA_Move, ETriggerEvent::Triggered, this, &AGantryCrane::OnMove);
@@ -124,11 +135,17 @@ void AGantryCrane::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	{
 		EIC->BindAction(IA_Unpossess, ETriggerEvent::Started, this, &AGantryCrane::OnUnpossess);
 	}
+
+	if (IA_Drop)
+	{
+		EIC->BindAction(IA_Drop, ETriggerEvent::Started, this, &AGantryCrane::OnDrop);
+	}
 }
 
 void AGantryCrane::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D LookAxis = Value.Get<FVector2D>();
+
 	AddControllerYawInput(LookAxis.X);
 	AddControllerPitchInput(LookAxis.Y);
 }
@@ -136,14 +153,64 @@ void AGantryCrane::OnLook(const FInputActionValue& Value)
 void AGantryCrane::OnMove(const FInputActionValue& Value)
 {
 	const FVector2D MoveAxis = Value.Get<FVector2D>();
-	BridgeInput = MoveAxis.Y;  //W/S = bridge forward/back
-	TrolleyInput = MoveAxis.X; //A/D = trolley left/right
+
+	BridgeInput = MoveAxis.Y;
+	TrolleyInput = MoveAxis.X;
 }
 
 void AGantryCrane::OnMoveStop(const FInputActionValue& Value)
 {
-	BridgeInput  = 0.f;
+	BridgeInput = 0.f;
 	TrolleyInput = 0.f;
+}
+
+void AGantryCrane::OnHookVolumeOverlap(
+	UPrimitiveComponent* OverlappedComp,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComp,
+	int32 OtherBodyIndex,
+	bool bFromSweep,
+	const FHitResult& SweepResult
+)
+{
+	if (HeldCrate)
+	{
+		return;
+	}
+
+	ACGCrate* Crate = Cast<ACGCrate>(OtherActor);
+	if (!Crate)
+	{
+		return;
+	}
+
+	HeldCrate = Crate;
+
+	UPrimitiveComponent* CrateRoot = Cast<UPrimitiveComponent>(Crate->GetRootComponent());
+	if (CrateRoot)
+	{
+		CrateRoot->SetSimulatePhysics(false);
+	}
+
+	Crate->AttachToComponent(HookMesh, FAttachmentTransformRules::KeepWorldTransform);
+}
+
+void AGantryCrane::OnDrop(const FInputActionValue& Value)
+{
+	if (!HeldCrate)
+	{
+		return;
+	}
+
+	HeldCrate->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	UPrimitiveComponent* CrateRoot = Cast<UPrimitiveComponent>(HeldCrate->GetRootComponent());
+	if (CrateRoot)
+	{
+		CrateRoot->SetSimulatePhysics(true);
+	}
+
+	HeldCrate = nullptr;
 }
 
 void AGantryCrane::OnPossessVolumeOverlap(
@@ -152,17 +219,24 @@ void AGantryCrane::OnPossessVolumeOverlap(
 	UPrimitiveComponent* OtherComp,
 	int32 OtherBodyIndex,
 	bool bFromSweep,
-	const FHitResult& SweepResult)
+	const FHitResult& SweepResult
+)
 {
 	APawn* OverlappingPawn = Cast<APawn>(OtherActor);
-	if (!OverlappingPawn) return;
+	if (!OverlappingPawn)
+	{
+		return;
+	}
 
 	APlayerController* PC = Cast<APlayerController>(OverlappingPawn->GetController());
-	if (!PC) return;
+	if (!PC)
+	{
+		return;
+	}
 
 	ULocalPlayer* LP = PC->GetLocalPlayer();
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = LP ? LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
-	
+
 	PC->SetInputMode(FInputModeGameOnly());
 	PC->bShowMouseCursor = false;
 
@@ -172,7 +246,9 @@ void AGantryCrane::OnPossessVolumeOverlap(
 	}
 
 	APawn* CachedPawn = OverlappingPawn;
+
 	PC->Possess(this);
+
 	PreviousPawn = CachedPawn;
 
 	if (Subsystem && IMC_Crane)
@@ -184,9 +260,13 @@ void AGantryCrane::OnPossessVolumeOverlap(
 void AGantryCrane::OnUnpossess()
 {
 	APlayerController* PC = Cast<APlayerController>(GetController());
-	if (!PC || !PreviousPawn) return;
-	
+	if (!PC || !PreviousPawn)
+	{
+		return;
+	}
+
 	PC->Possess(PreviousPawn);
+
 	PreviousPawn = nullptr;
 }
 
